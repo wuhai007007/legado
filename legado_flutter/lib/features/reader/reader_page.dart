@@ -1,291 +1,150 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'package:flutter/material.dart';
+import '../../core/models/book.dart';
+import '../../core/models/book_chapter.dart';
+import '../../core/database/daos/book_chapter_dao.dart';
+import '../../core/database/daos/book_dao.dart';
+import '../../core/database/daos/book_source_dao.dart';
+import '../../core/services/source/book_source_service.dart';
 import '../../theme/app_theme.dart';
+import '../../core/models/book_source.dart';
 
 class ReaderPage extends StatefulWidget {
-  const ReaderPage({super.key});
-
+  final Book book;
+  const ReaderPage({super.key, required this.book});
   @override
   State<ReaderPage> createState() => _ReaderPageState();
 }
 
 class _ReaderPageState extends State<ReaderPage> {
-  final List<String> _chapters = [];
-  final List<String> _content = [];
-  int _currentPage = 0;
+  final _chapterDao = BookChapterDao();
+  final _bookDao = BookDao();
+  final _sourceDao = BookSourceDao();
+  List<BookChapter> _chapters = [];
+  int _currentIndex = 0;
+  String _content = "";
   bool _showMenu = false;
-  String _currentTheme = 'yellow';
+  String _currentTheme = "yellow";
   double _fontSize = 18.0;
-  double _lineHeight = 1.6;
-  bool _isLoading = true;
-  late ScrollController _scrollController;
+  bool _isLoadingContent = false;
+  Book? _book;
 
   @override
-  void initState() {
-    super.initState();
-    _scrollController = ScrollController();
-    _loadContent();
+  void initState() { super.initState(); _book = widget.book; _initReader(); }
+
+  Future<void> _initReader() async {
+    _currentIndex = _book!.durChapterIndex;
+    _chapters = await _chapterDao.getByBookUrl(_book!.bookUrl);
+    if (_chapters.isNotEmpty && _currentIndex < _chapters.length) {
+      _loadContent(_currentIndex);
+    }
   }
 
-  @override
-  void dispose() {
-    _scrollController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _loadContent() async {
-    setState(() => _isLoading = true);
-    await Future.delayed(const Duration(milliseconds: 500));
-    setState(() {
-      _chapters.addAll([
-        '第一章 开端', '第二章 相遇', '第三章 发展', '第四章 转折',
-        '第五章 高潮', '第六章 结局'
-      ]);
-      for (int i = 0; i < 6; i++) {
-        _content.add('这是第${i+1}章的内容。\n\n' * 20);
+  Future<void> _loadContent(int index) async {
+    if (index < 0 || index >= _chapters.length) return;
+    setState(() { _currentIndex = index; _isLoadingContent = true; _content = ""; });
+    try {
+      final source = await _sourceDao.getByUrl(_book!.origin);
+      if (source != null && _chapters[index].url.isNotEmpty) {
+        final svc = BookSourceService(source);
+        _content = await svc.getChapterContent(_chapters[index].url);
       }
-      _isLoading = false;
-    });
+    } catch (_) {}
+    if (_content.isEmpty) {
+      _content = "\u6b63\u6587\u52a0\u8f7d\u5931\u8d25\uff0c\u8bf7\u68c0\u67e5\u7f51\u7edc\u6216\u4e66\u6e90\u914d\u7f6e";
+    }
+    _book!.durChapterIndex = index;
+    _book!.durChapterTitle = _chapters[index].title;
+    await _bookDao.update(_book!);
+    setState(() => _isLoadingContent = false);
   }
+
+  void _prevChapter() { if (_currentIndex > 0) _loadContent(_currentIndex - 1); }
+  void _nextChapter() { if (_currentIndex < _chapters.length - 1) _loadContent(_currentIndex + 1); }
 
   @override
   Widget build(BuildContext context) {
     final theme = AppTheme.readerThemes[_currentTheme]!;
-    
     return Scaffold(
       backgroundColor: theme.bgColor,
       body: GestureDetector(
         onTap: () => setState(() => _showMenu = !_showMenu),
-        child: Stack(
-          children: [
-            // Reader content
-            Positioned.fill(
-              child: _isLoading
-                  ? const Center(child: CircularProgressIndicator())
-                  : Column(
-                      children: [
-                        SizedBox(height: MediaQuery.of(context).padding.top + 8),
-                        Expanded(
-                          child: SingleChildScrollView(
-                            controller: _scrollController,
-                            padding: EdgeInsets.symmetric(horizontal: 16),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  _chapters[_currentPage],
-                                  style: TextStyle(
-                                    fontSize: _fontSize + 4,
-                                    fontWeight: FontWeight.bold,
-                                    color: theme.textColor,
-                                    height: _lineHeight,
-                                  ),
-                                ),
-                                const SizedBox(height: 16),
-                                Text(
-                                  _content[_currentPage],
-                                  style: TextStyle(
-                                    fontSize: _fontSize,
-                                    color: theme.textColor,
-                                    height: _lineHeight,
-                                    letterSpacing: 0.5,
-                                  ),
-                                ),
-                                const SizedBox(height: 40),
-                              ],
-                            ),
-                          ),
-                        ),
-                        // Progress bar
-                        Container(
-                          padding: EdgeInsets.only(bottom: MediaQuery.of(context).padding.bottom + 4),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                '${_currentPage + 1} / ${_chapters.length}',
-                                style: TextStyle(fontSize: 12, color: theme.textColor.withValues(alpha: 0.5)),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-            ),
-            // Tap zones for page turning
-            if (!_showMenu)
-              Row(
-                children: [
-                  Expanded(
-                    child: GestureDetector(
-                      onTap: _currentPage > 0 ? () => setState(() => _currentPage--) : null,
-                      child: Container(color: Colors.transparent),
-                    ),
-                  ),
-                  Container(width: 60, color: Colors.transparent),
-                  Expanded(
-                    child: GestureDetector(
-                      onTap: _currentPage < _chapters.length - 1 ? () => setState(() => _currentPage++) : null,
-                      child: Container(color: Colors.transparent),
-                    ),
-                  ),
-                ],
-              ),
-            // Menu overlay
-            if (_showMenu)
-              _buildMenuOverlay(theme),
-          ],
-        ),
+        child: Stack(children: [
+          // Content
+          Positioned.fill(child: Column(children: [
+            SizedBox(height: MediaQuery.of(context).padding.top + 8),
+            if (_showMenu) _buildTopBar(theme),
+            Expanded(child: _isLoadingContent
+              ? const Center(child: CircularProgressIndicator())
+              : SingleChildScrollView(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(_chapters.isNotEmpty ? _chapters[_currentIndex].title : "",
+                      style: TextStyle(fontSize: _fontSize + 4, fontWeight: FontWeight.bold, color: theme.textColor, height: 1.6)),
+                    const SizedBox(height: 16),
+                    Text(_content, style: TextStyle(fontSize: _fontSize, color: theme.textColor, height: 1.8, letterSpacing: 0.5)),
+                    const SizedBox(height: 60),
+                  ]),
+                )),
+            Container(padding: EdgeInsets.only(bottom: MediaQuery.of(context).padding.bottom + 4),
+              child: Center(child: Text((_currentIndex + 1).toString() + " / " + _chapters.length.toString(),
+                style: TextStyle(fontSize: 12, color: theme.textColor.withValues(alpha: 0.5))))),
+          ])),
+          // Tap zones
+          if (!_showMenu) Row(children: [
+            Expanded(child: GestureDetector(onTap: _prevChapter, child: Container(color: Colors.transparent))),
+            Container(width: 80, color: Colors.transparent),
+            Expanded(child: GestureDetector(onTap: _nextChapter, child: Container(color: Colors.transparent))),
+          ]),
+          // Menu overlay
+          if (_showMenu) _buildBottomMenu(theme),
+        ]),
       ),
     );
   }
 
-  Widget _buildMenuOverlay(ReaderTheme theme) {
-    return Positioned(
-      left: 0, right: 0, bottom: 0,
-      child: Container(
-        color: theme.bgColor.withValues(alpha: 0.95),
-        child: SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Top menu bar
-              Row(
-                children: [
-                  IconButton(
-                    icon: Icon(Icons.arrow_back, color: theme.textColor),
-                    onPressed: () => Navigator.pop(context),
-                  ),
-                  Expanded(
-                    child: SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: Row(
-                        children: _buildChapterChips(theme),
-                      ),
-                    ),
-                  ),
-                  IconButton(
-                    icon: Icon(Icons.menu, color: theme.textColor),
-                    onPressed: () => _showChapterList(theme),
-                  ),
-                ],
-              ),
-              const Divider(height: 1),
-              // Reader settings
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                child: Column(
-                  children: [
-                    // Font size
-                    Row(
-                      children: [
-                        const Icon(Icons.text_fields, size: 16),
-                        Expanded(
-                          child: Slider(
-                            value: _fontSize,
-                            min: 12, max: 32,
-                            onChanged: (v) => setState(() => _fontSize = v),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    // Theme selection
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: AppTheme.readerThemes.entries.map((entry) {
-                        final isActive = _currentTheme == entry.key;
-                        return GestureDetector(
-                          onTap: () => setState(() => _currentTheme = entry.key),
-                          child: Column(
-                            children: [
-                              Container(
-                                width: 36, height: 36,
-                                decoration: BoxDecoration(
-                                  color: entry.value.bgColor,
-                                  borderRadius: BorderRadius.circular(18),
-                                  border: Border.all(
-                                    color: isActive ? AppTheme.primaryColor : Colors.grey.withValues(alpha: 0.3),
-                                    width: 2,
-                                  ),
-                                  boxShadow: isActive
-                                      ? [BoxShadow(color: AppTheme.primaryColor.withValues(alpha: 0.3), blurRadius: 4)]
-                                      : null,
-                                ),
-                                child: isActive
-                                    ? Icon(Icons.check, size: 16, color: entry.value.textColor)
-                                    : null,
-                              ),
-                              const SizedBox(height: 4),
-                              Text(entry.value.name, style: TextStyle(fontSize: 10, color: theme.textColor)),
-                            ],
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
+  Widget _buildTopBar(ReaderTheme theme) {
+    return Container(color: theme.bgColor, child: Row(children: [
+      IconButton(icon: Icon(Icons.arrow_back, color: theme.textColor), onPressed: () => Navigator.pop(context)),
+      Expanded(child: SingleChildScrollView(scrollDirection: Axis.horizontal, child: Text(
+        _chapters.isNotEmpty ? _chapters[_currentIndex].title : "", style: TextStyle(color: theme.textColor, fontSize: 14)))),
+      IconButton(icon: Icon(Icons.menu, color: theme.textColor), onPressed: () {}),
+    ]));
   }
 
-  List<Widget> _buildChapterChips(ReaderTheme theme) {
-    return List.generate(_chapters.length, (i) {
-      final isCurrent = i == _currentPage;
-      return Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 2),
-        child: ActionChip(
-          label: Text('${i + 1}', style: TextStyle(fontSize: 11, color: isCurrent ? Colors.white : theme.textColor)),
-          backgroundColor: isCurrent ? AppTheme.primaryColor : null,
-          onPressed: () => setState(() => _currentPage = i),
-        ),
-      );
-    });
-  }
-
-  void _showChapterList(ReaderTheme theme) {
-    showModalBottomSheet(
-      context: context,
-      builder: (ctx) => Container(
-        color: theme.bgColor,
-        child: Column(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(16),
-              child: Text('目录', style: TextStyle(fontSize: 18, color: theme.textColor)),
-            ),
-            const Divider(height: 1),
-            Expanded(
-              child: ListView.builder(
-                itemCount: _chapters.length,
-                itemBuilder: (context, i) {
-                  final isCurrent = i == _currentPage;
-                  return ListTile(
-                    selected: isCurrent,
-                    selectedTileColor: AppTheme.primaryColor.withValues(alpha: 0.1),
-                    title: Text(
-                      _chapters[i],
-                      style: TextStyle(
-                        color: theme.textColor,
-                        fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
-                      ),
-                    ),
-                    trailing: isCurrent ? const Icon(Icons.chevron_right, size: 16) : null,
-                    onTap: () {
-                      setState(() => _currentPage = i);
-                      Navigator.pop(ctx);
-                    },
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
+  Widget _buildBottomMenu(ReaderTheme theme) {
+    return Positioned(left: 0, right: 0, bottom: 0,
+      child: Container(color: theme.bgColor.withValues(alpha: 0.97),
+        child: SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
+          // Chapter selector
+          SizedBox(height: 40, child: ListView.builder(
+            scrollDirection: Axis.horizontal, itemCount: _chapters.length,
+            itemBuilder: (ctx, i) => Padding(padding: const EdgeInsets.symmetric(horizontal: 2),
+              child: ActionChip(label: Text((i + 1).toString(), style: TextStyle(fontSize: 11,
+                color: i == _currentIndex ? Colors.white : theme.textColor)),
+                backgroundColor: i == _currentIndex ? AppTheme.primaryColor : null,
+                onPressed: () => _loadContent(i))))),
+          const Divider(height: 1),
+          // Font size slider
+          Padding(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: Row(children: [
+              const Icon(Icons.text_fields, size: 16),
+              Expanded(child: Slider(value: _fontSize, min: 12, max: 32, onChanged: (v) => setState(() => _fontSize = v))),
+            ])),
+          // Theme selection
+          Padding(padding: const EdgeInsets.only(bottom: 8),
+            child: Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: AppTheme.readerThemes.entries.map((e) {
+                final active = _currentTheme == e.key;
+                return GestureDetector(onTap: () => setState(() => _currentTheme = e.key),
+                  child: Column(children: [
+                    Container(width: 32, height: 32, decoration: BoxDecoration(
+                      color: e.value.bgColor, borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: active ? AppTheme.primaryColor : Colors.grey.withValues(alpha: 0.3), width: 2)),
+                      child: active ? Icon(Icons.check, size: 14, color: e.value.textColor) : null),
+                    Text(e.value.name, style: TextStyle(fontSize: 9, color: theme.textColor)),
+                  ]));
+              }).toList())),
+        ]))));
   }
 }

@@ -1,4 +1,4 @@
-
+﻿
 class BookSource {
   String bookSourceUrl = '';
   String bookSourceName = '';
@@ -79,6 +79,8 @@ class BookSource {
     searchUrl: map['searchUrl']?.toString(),
   );
 
+  factory BookSource.fromJson(Map<String, dynamic> json) => BookSource.fromMap(json);
+
   Map<String, dynamic> toMap() => {
     'bookSourceUrl': bookSourceUrl, 'bookSourceName': bookSourceName,
     'bookSourceGroup': bookSourceGroup, 'bookSourceType': bookSourceType,
@@ -92,4 +94,13 @@ class BookSource {
     'respondTime': respondTime, 'weight': weight, 'exploreUrl': exploreUrl,
     'exploreScreen': exploreScreen, 'searchUrl': searchUrl,
   };
+
+  Map<String, dynamic> toJson() {
+    final m = toMap();
+    m.remove('enabledCookieJar');
+    m['enabledCookieJar'] = enabledCookieJar == true;
+    m['enabled'] = enabled;
+    m['enabledExplore'] = enabledExplore;
+    return m;
+  }
 }
